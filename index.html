@@ -1,26 +1,182 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Sistema Estatal de Seguimiento</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema Estatal de Seguimiento</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-  <!-- SheetJS (XLSX) y Chart.js desde CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body{font-family:Arial, sans-serif; margin:40px; background:#f4f4f4}
+h2{background:#7a0c2e;color:white;padding:15px;border-radius:8px}
+select,button,input{padding:8px;margin:10px 0;}
+button{background:#7a0c2e;color:white;border:none;border-radius:6px;cursor:pointer}
+button:hover{background:#5c0922}
+table{border-collapse:collapse;width:100%;margin-top:20px;background:white}
+th,td{border:1px solid #ccc;padding:8px;text-align:left}
+th{background:#7a0c2e;color:white}
+.card{display:inline-block;background:white;padding:15px;margin:10px;border-radius:8px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
+.verde{color:green;font-weight:bold}
+.amarillo{color:orange;font-weight:bold}
+.rojo{color:red;font-weight:bold}
+.botonesSubsistemas button{margin:5px}
+#fechaArchivo{font-size:14px;color:#555;margin-bottom:10px}
+</style>
+</head>
 
-  <style>
-    body{font-family:Arial, sans-serif; margin:40px; background:#f4f4f4}
-    h2{background:#7a0c2e;color:white;padding:15px;border-radius:8px}
-    select,button,input{padding:8px;margin:10px 0;}
-    button{background:#7a0c2e;color:white;border:none;border-radius:6px;cursor:pointer}
-    button:hover{background:#5c0922}
-    table{border-collapse:collapse;width:100%;margin-top:20px;background:white}
-    th,td{border:1px solid #ccc;padding:8px;text-align:left}
-    th{background:#7a0c2e;color:white}
-    .card{display:inline-block;background:white;padding:15px;margin:10px;border-radius:8px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
-    .verde{color:green;font-weight:bold}
-    .amarillo{color:orange;font-weight:bold}
-    .rojo{color:red;font-weight:bold}
-    .botonesSubsistemas button{margin:5px}
-    #fechaArchivo{font-size:14px;color:#555;margin-bottom:10px}
+<body>
+
+<h2>Beca Universal Benito Juárez — Carga de Matrícula en SINOB 2026-1 — Estado de Durango</h2>
+
+<label>Cargar archivo Excel:</label>
+<input type="file" id="fileInput" accept=".xlsx,.xls" />
+
+<div id="fechaArchivo">Fecha de actualización del archivo: —</div>
+
+<div>
+<div class="card">Concluidos: <span id="cConcluidos">0</span></div>
+<div class="card">En proceso: <span id="cProceso">0</span></div>
+<div class="card">Pendientes: <span id="cPendientes">0</span></div>
+</div>
+
+<h3>Subsistemas</h3>
+<div class="botonesSubsistemas" id="botonesSubsistemas"></div>
+
+<button onclick="exportarExcelSeleccionado()">Descargar subsistema seleccionado</button>
+
+<h3>CARGA DE MATRICULA EN SINOB 2026-1</h3>
+<canvas id="grafico" width="300" height="150" style="max-width:300px;"></canvas>
+
+<table id="tablaPlanteles">
+<thead>
+<tr>
+<th>Plantel</th>
+<th>Estatus</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<script>
+
+let datos = {};
+let chart;
+let subsistemaSeleccionado = null;
+const tbody = document.querySelector("#tablaPlanteles tbody");
+
+document.getElementById('fileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const fecha = new Date(file.lastModified);
+    document.getElementById("fechaArchivo").innerText =
+    "Fecha de actualización del archivo: " + fecha.toLocaleString();
+
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        const workbook = XLSX.read(evt.target.result, { type: 'binary' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet, {defval:""});
+        procesarDatosFlexible(json);
+    };
+    reader.readAsBinaryString(file);
+});
+
+function procesarDatosFlexible(json){
+    datos = {};
+    json.forEach(r => {
+        const claves = Object.keys(r);
+        const colSubsistema = claves.find(c => c.toLowerCase().includes("subsistema"));
+        const colPlantel = claves.find(c => c.toLowerCase().includes("plantel"));
+        const colEstatus = claves.find(c => c.toLowerCase().includes("estatus") || c.toLowerCase().includes("estado"));
+        if(!colSubsistema || !colPlantel || !colEstatus) return;
+
+        const subsistema = r[colSubsistema];
+        if(!datos[subsistema]) datos[subsistema] = [];
+        datos[subsistema].push({plantel:r[colPlantel], estatus:r[colEstatus]});
+    });
+    crearBotones();
+    actualizarTotales();
+    actualizarGrafico();
+}
+
+function crearBotones(){
+    const cont = document.getElementById("botonesSubsistemas");
+    cont.innerHTML="";
+    Object.keys(datos).forEach(s=>{
+        let btn=document.createElement("button");
+        btn.textContent=s;
+        btn.onclick=()=>{
+            subsistemaSeleccionado = s;
+            mostrarPlanteles(s);
+        };
+        cont.appendChild(btn);
+    });
+}
+
+function mostrarPlanteles(subsistema){
+    tbody.innerHTML="";
+    datos[subsistema].forEach(p=>{
+        let clase="";
+        if(p.estatus.toLowerCase().includes("concl")) clase="verde";
+        else if(p.estatus.toLowerCase().includes("proceso")) clase="amarillo";
+        else clase="rojo";
+
+        let tr=document.createElement("tr");
+        tr.innerHTML=`<td>${p.plantel}</td><td class="${clase}">${p.estatus}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+function actualizarTotales(){
+    let concluidos=0, proceso=0, pendientes=0;
+    Object.values(datos).flat().forEach(p=>{
+        if(p.estatus.toLowerCase().includes("concl")) concluidos++;
+        else if(p.estatus.toLowerCase().includes("proceso")) proceso++;
+        else pendientes++;
+    });
+    document.getElementById("cConcluidos").textContent=concluidos;
+    document.getElementById("cProceso").textContent=proceso;
+    document.getElementById("cPendientes").textContent=pendientes;
+}
+
+function actualizarGrafico(){
+    let concluidos=0, proceso=0, pendientes=0;
+    Object.values(datos).flat().forEach(p=>{
+        if(p.estatus.toLowerCase().includes("concl")) concluidos++;
+        else if(p.estatus.toLowerCase().includes("proceso")) proceso++;
+        else pendientes++;
+    });
+
+    const ctx=document.getElementById('grafico');
+    if(chart) chart.destroy();
+    chart=new Chart(ctx,{
+        type:'bar',
+        data:{
+            labels:['Concluidos','En proceso','Pendientes'],
+            datasets:[{data:[concluidos,proceso,pendientes]}]
+        },
+        options:{responsive:false,plugins:{legend:{display:false}}}
+    });
+}
+
+function exportarExcelSeleccionado(){
+    if(!subsistemaSeleccionado){
+        alert("Seleccione primero un subsistema");
+        return;
+    }
+    let csv="Subsistema,Plantel,Estatus\n";
+    datos[subsistemaSeleccionado].forEach(p=>{
+        csv+=`${subsistemaSeleccionado},${p.plantel},${p.estatus}\n`;
+    });
+    let blob=new Blob([csv],{type:"text/csv"});
+    let link=document.createElement("a");
+    link.href=URL.createObjectURL(blob);
+    link.download="reporte_"+subsistemaSeleccionado+".csv";
+    link.click();
+}
+
+</script>
+</body>
+</html>

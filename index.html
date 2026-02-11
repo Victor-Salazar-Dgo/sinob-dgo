@@ -1,182 +1,215 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sistema Estatal de Seguimiento</title>
-<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sistema Estatal de Seguimiento</title>
 
-<style>
-body{font-family:Arial, sans-serif; margin:40px; background:#f4f4f4}
-h2{background:#7a0c2e;color:white;padding:15px;border-radius:8px}
-select,button,input{padding:8px;margin:10px 0;}
-button{background:#7a0c2e;color:white;border:none;border-radius:6px;cursor:pointer}
-button:hover{background:#5c0922}
-table{border-collapse:collapse;width:100%;margin-top:20px;background:white}
-th,td{border:1px solid #ccc;padding:8px;text-align:left}
-th{background:#7a0c2e;color:white}
-.card{display:inline-block;background:white;padding:15px;margin:10px;border-radius:8px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
-.verde{color:green;font-weight:bold}
-.amarillo{color:orange;font-weight:bold}
-.rojo{color:red;font-weight:bold}
-.botonesSubsistemas button{margin:5px}
-#fechaArchivo{font-size:14px;color:#555;margin-bottom:10px}
-</style>
+  <!-- SheetJS (XLSX) y Chart.js desde CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body{font-family:Arial, sans-serif; margin:40px; background:#f4f4f4}
+    h2{background:#7a0c2e;color:white;padding:15px;border-radius:8px}
+    select,button,input{padding:8px;margin:10px 0;}
+    button{background:#7a0c2e;color:white;border:none;border-radius:6px;cursor:pointer}
+    button:hover{background:#5c0922}
+    table{border-collapse:collapse;width:100%;margin-top:20px;background:white}
+    th,td{border:1px solid #ccc;padding:8px;text-align:left}
+    th{background:#7a0c2e;color:white}
+    .card{display:inline-block;background:white;padding:15px;margin:10px;border-radius:8px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
+    .verde{color:green;font-weight:bold}
+    .amarillo{color:orange;font-weight:bold}
+    .rojo{color:red;font-weight:bold}
+    .botonesSubsistemas button{margin:5px}
+    #fechaArchivo{font-size:14px;color:#555;margin-bottom:10px}
+    .fila-acciones{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  </style>
 </head>
-
 <body>
+  <h2>Beca Universal Benito Juárez — Carga de Matrícula en SINOB 2026-1 — Estado de Durango</h2>
 
-<h2>Beca Universal Benito Juárez — Carga de Matrícula en SINOB 2026-1 — Estado de Durango</h2>
+  <div class="fila-acciones">
+    <button id="btnRecargar">Recargar datos</button>
+    <!-- 🔽 Botón de descarga del Excel (misma fuente que se lee) -->
+    <a id="btnDescargar" href="#" download>
+      <button>Descargar Excel</button>
+    </a>
+  </div>
 
-<label>Cargar archivo Excel:</label>
-<input type="file" id="fileInput" accept=".xlsx,.xls" />
+  <div id="fechaArchivo">Fecha de actualización del archivo: —</div>
 
-<div id="fechaArchivo">Fecha de actualización del archivo: —</div>
+  <div>
+    <div class="card">Concluidos: <span id="cConcluidos">0</span></div>
+    <div class="card">En proceso: <span id="cProceso">0</span></div>
+    <div class="card">Pendientes: <span id="cPendientes">0</span></div>
+  </div>
 
-<div>
-<div class="card">Concluidos: <span id="cConcluidos">0</span></div>
-<div class="card">En proceso: <span id="cProceso">0</span></div>
-<div class="card">Pendientes: <span id="cPendientes">0</span></div>
-</div>
+  <h3>Subsistemas</h3>
+  <div class="botonesSubsistemas" id="botonesSubsistemas"></div>
+  <button onclick="exportarExcelSeleccionado()">Descargar subsistema seleccionado</button>
 
-<h3>Subsistemas</h3>
-<div class="botonesSubsistemas" id="botonesSubsistemas"></div>
+  <h3>CARGA DE MATRICULA EN SINOB 2026-1</h3>
+  <canvas id="grafico" width="300" height="150" style="max-width:300px;"></canvas>
 
-<button onclick="exportarExcelSeleccionado()">Descargar subsistema seleccionado</button>
+  <table id="tablaPlanteles">
+    <thead>
+      <tr>
+        <th>Plantel</th>
+        <th>Estatus</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
-<h3>CARGA DE MATRICULA EN SINOB 2026-1</h3>
-<canvas id="grafico" width="300" height="150" style="max-width:300px;"></canvas>
+  <script>
+    // =========================================================
+    // URL RAW DEL EXCEL EN TU REPOSITORIO (cámbiala por la tuya)
+    // Ejemplo:
+    // https://raw.githubusercontent.com/TU_USUARIO/sinob-dgo/main/datos.xlsx
+    // =========================================================
+    const EXCEL_URL_BASE = "https://raw.githubusercontent.com/TU_USUARIO/sinob-dgo/main/datos.xlsx";
 
-<table id="tablaPlanteles">
-<thead>
-<tr>
-<th>Plantel</th>
-<th>Estatus</th>
-</tr>
-</thead>
-<tbody></tbody>
-</table>
+    let datos = {};
+    let chart;
+    let subsistemaSeleccionado = null;
+    const tbody = document.querySelector("#tablaPlanteles tbody");
+    const fechaArchivo = document.getElementById("fechaArchivo");
+    const btnDescargar = document.getElementById("btnDescargar");
 
-<script>
+    // El botón "Descargar Excel" apunta al mismo archivo
+    btnDescargar.href = EXCEL_URL_BASE;
 
-let datos = {};
-let chart;
-let subsistemaSeleccionado = null;
-const tbody = document.querySelector("#tablaPlanteles tbody");
+    // Evitar cache del navegador al leer el archivo
+    function excelUrlConAntiCache() {
+      const ts = Date.now();
+      const separador = EXCEL_URL_BASE.includes("?") ? "&" : "?";
+      return `${EXCEL_URL_BASE}${separador}v=${ts}`;
+    }
 
-document.getElementById('fileInput').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if(!file) return;
-
-    const fecha = new Date(file.lastModified);
-    document.getElementById("fechaArchivo").innerText =
-    "Fecha de actualización del archivo: " + fecha.toLocaleString();
-
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        const workbook = XLSX.read(evt.target.result, { type: 'binary' });
+    // Carga el Excel desde URL y procesa
+    async function cargarExcelDesdeURL() {
+      try {
+        fechaArchivo.textContent = "Cargando datos…";
+        const resp = await fetch(excelUrlConAntiCache(), { cache: "no-store" });
+        if (!resp.ok) throw new Error("No se pudo obtener el archivo.");
+        const buf = await resp.arrayBuffer();
+        const workbook = XLSX.read(buf, { type: "array" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet, {defval:""});
+        const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
         procesarDatosFlexible(json);
-    };
-    reader.readAsBinaryString(file);
-});
+        fechaArchivo.textContent = "Fecha de actualización del archivo: " + new Date().toLocaleString();
+      } catch (err) {
+        console.error(err);
+        fechaArchivo.textContent = "No se pudo cargar el archivo. Verifique el enlace del Excel.";
+        alert("Error al cargar el Excel: " + err.message);
+      }
+    }
 
-function procesarDatosFlexible(json){
-    datos = {};
-    json.forEach(r => {
+    // Procesa las filas detectando columnas por nombre (Subsistema, Plantel, Estatus)
+    function procesarDatosFlexible(json){
+      datos = {};
+      json.forEach(r => {
         const claves = Object.keys(r);
         const colSubsistema = claves.find(c => c.toLowerCase().includes("subsistema"));
-        const colPlantel = claves.find(c => c.toLowerCase().includes("plantel"));
-        const colEstatus = claves.find(c => c.toLowerCase().includes("estatus") || c.toLowerCase().includes("estado"));
+        const colPlantel    = claves.find(c => c.toLowerCase().includes("plantel"));
+        const colEstatus    = claves.find(c => c.toLowerCase().includes("estatus") || c.toLowerCase().includes("estado"));
         if(!colSubsistema || !colPlantel || !colEstatus) return;
-
         const subsistema = r[colSubsistema];
         if(!datos[subsistema]) datos[subsistema] = [];
-        datos[subsistema].push({plantel:r[colPlantel], estatus:r[colEstatus]});
-    });
-    crearBotones();
-    actualizarTotales();
-    actualizarGrafico();
-}
+        datos[subsistema].push({plantel: r[colPlantel], estatus: r[colEstatus]});
+      });
+      crearBotones();
+      actualizarTotales();
+      actualizarGrafico();
+      if (subsistemaSeleccionado && datos[subsistemaSeleccionado]) {
+        mostrarPlanteles(subsistemaSeleccionado);
+      } else {
+        subsistemaSeleccionado = null;
+        tbody.innerHTML = "";
+      }
+    }
 
-function crearBotones(){
-    const cont = document.getElementById("botonesSubsistemas");
-    cont.innerHTML="";
-    Object.keys(datos).forEach(s=>{
+    function crearBotones(){
+      const cont = document.getElementById("botonesSubsistemas");
+      cont.innerHTML = "";
+      Object.keys(datos).forEach(s=>{
         let btn=document.createElement("button");
         btn.textContent=s;
-        btn.onclick=()=>{
-            subsistemaSeleccionado = s;
-            mostrarPlanteles(s);
-        };
+        btn.onclick=()=>{ subsistemaSeleccionado = s; mostrarPlanteles(s); };
         cont.appendChild(btn);
-    });
-}
+      });
+    }
 
-function mostrarPlanteles(subsistema){
-    tbody.innerHTML="";
-    datos[subsistema].forEach(p=>{
-        let clase="";
-        if(p.estatus.toLowerCase().includes("concl")) clase="verde";
-        else if(p.estatus.toLowerCase().includes("proceso")) clase="amarillo";
-        else clase="rojo";
-
+    function mostrarPlanteles(subsistema){
+      tbody.innerHTML="";
+      datos[subsistema].forEach(p=>{
+        const est = String(p.estatus).toLowerCase();
+        let clase = est.includes("concl") ? "verde" : (est.includes("proceso") ? "amarillo" : "rojo");
         let tr=document.createElement("tr");
         tr.innerHTML=`<td>${p.plantel}</td><td class="${clase}">${p.estatus}</td>`;
         tbody.appendChild(tr);
-    });
-}
+      });
+    }
 
-function actualizarTotales(){
-    let concluidos=0, proceso=0, pendientes=0;
-    Object.values(datos).flat().forEach(p=>{
-        if(p.estatus.toLowerCase().includes("concl")) concluidos++;
-        else if(p.estatus.toLowerCase().includes("proceso")) proceso++;
+    function actualizarTotales(){
+      let concluidos=0, proceso=0, pendientes=0;
+      Object.values(datos).flat().forEach(p=>{
+        const est = String(p.estatus).toLowerCase();
+        if(est.includes("concl")) concluidos++;
+        else if(est.includes("proceso")) proceso++;
         else pendientes++;
-    });
-    document.getElementById("cConcluidos").textContent=concluidos;
-    document.getElementById("cProceso").textContent=proceso;
-    document.getElementById("cPendientes").textContent=pendientes;
-}
+      });
+      document.getElementById("cConcluidos").textContent=concluidos;
+      document.getElementById("cProceso").textContent=proceso;
+      document.getElementById("cPendientes").textContent=pendientes;
+    }
 
-function actualizarGrafico(){
-    let concluidos=0, proceso=0, pendientes=0;
-    Object.values(datos).flat().forEach(p=>{
-        if(p.estatus.toLowerCase().includes("concl")) concluidos++;
-        else if(p.estatus.toLowerCase().includes("proceso")) proceso++;
+    function actualizarGrafico(){
+      let concluidos=0, proceso=0, pendientes=0;
+      Object.values(datos).flat().forEach(p=>{
+        const est = String(p.estatus).toLowerCase();
+        if(est.includes("concl")) concluidos++;
+        else if(est.includes("proceso")) proceso++;
         else pendientes++;
-    });
-
-    const ctx=document.getElementById('grafico');
-    if(chart) chart.destroy();
-    chart=new Chart(ctx,{
+      });
+      const ctx=document.getElementById('grafico');
+      if(chart) chart.destroy();
+      chart=new Chart(ctx,{
         type:'bar',
         data:{
-            labels:['Concluidos','En proceso','Pendientes'],
-            datasets:[{data:[concluidos,proceso,pendientes]}]
+          labels:['Concluidos','En proceso','Pendientes'],
+          datasets:[{
+            data:[concluidos,proceso,pendientes],
+            backgroundColor:['#2e7d32','#f9a825','#c62828']
+          }]
         },
-        options:{responsive:false,plugins:{legend:{display:false}}}
-    });
-}
+        options:{ responsive:false, plugins:{ legend:{ display:false } } }
+      });
+    }
 
-function exportarExcelSeleccionado(){
-    if(!subsistemaSeleccionado){
+    function exportarExcelSeleccionado(){
+      if(!subsistemaSeleccionado){
         alert("Seleccione primero un subsistema");
         return;
-    }
-    let csv="Subsistema,Plantel,Estatus\n";
-    datos[subsistemaSeleccionado].forEach(p=>{
+      }
+      let csv="Subsistema,Plantel,Estatus\n";
+      datos[subsistemaSeleccionado].forEach(p=>{
         csv+=`${subsistemaSeleccionado},${p.plantel},${p.estatus}\n`;
-    });
-    let blob=new Blob([csv],{type:"text/csv"});
-    let link=document.createElement("a");
-    link.href=URL.createObjectURL(blob);
-    link.download="reporte_"+subsistemaSeleccionado+".csv";
-    link.click();
-}
+      });
+      let blob=new Blob([csv],{type:"text/csv"});
+      let link=document.createElement("a");
+      link.href=URL.createObjectURL(blob);
+      link.download="reporte_"+subsistemaSeleccionado+".csv";
+      link.click();
+    }
 
-</script>
+    // Eventos
+    document.getElementById("btnRecargar").addEventListener("click", cargarExcelDesdeURL);
+
+    // Carga inicial
+    cargarExcelDesdeURL();
+  </script>
 </body>
 </html>
